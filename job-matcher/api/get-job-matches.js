@@ -61,3 +61,31 @@ export default async function handler(req, res) {
 import { getResumeData } from "./utils/dataStorage.js"
 import { performVectorSearch } from "./utils/vectorSearch.js"
 import { calculateCompatibilityScores, generateMatchExplanations } from "./utils/matchingEngine.js"
+import { embed } from "./utils/embeddingGenerator.js";
+import { loadJobs } from "./utils/jobStore.js";
+import { buildIndex, search } from "./utils/vectorStore.js";
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  try {
+    const { resumeText, topK = 10 } = req.body || {};
+    if (!resumeText || typeof resumeText !== "string") return res.status(400).json({ error: "resumeText required" });
+    const jobs = await loadJobs();
+    if (!jobs.length) return res.status(200).json({ results: [] });
+    const jobEmbeds = await Promise.all(jobs.map(j => embed(j.description)));
+    const idx = buildIndex(jobEmbeds);
+    const q = await embed(resumeText);
+    const hits = search(idx, q, topK).map(({ i, score }) => ({
+      id: jobs[i].id,
+      title: jobs[i].title,
+      company: jobs[i].company,
+      location: jobs[i].location,
+      score: Number(score.toFixed(4)),
+      descriptionSnippet: jobs[i].description.slice(0, 280)
+    }));
+    return res.status(200).json({ results: hits });
+  } catch {
+    return res.status(500).json({ error: "Match error" });
+  }
+}
+
