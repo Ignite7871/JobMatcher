@@ -59,3 +59,35 @@ export default async function handler(req, res) {
 import { parseResume } from "./utils/resumeParser.js"
 import { generateEmbeddings } from "./utils/embeddingGenerator.js"
 import { storeResumeData } from "./utils/dataStorage.js"
+import formidable from "formidable";
+import fs from "fs";
+import pdf from "pdf-parse";
+
+export const config = { api: { bodyParser: false } };
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  const form = formidable({ multiples: false });
+  form.parse(req, async (err, fields, files) => {
+    if (err) return res.status(400).json({ error: "Invalid form data" });
+    try {
+      const rawText = fields.text?.toString();
+      if (rawText && rawText.trim().length > 0) return res.status(200).json({ text: rawText.trim() });
+      const f = files.file;
+      if (!f) return res.status(400).json({ error: "No file or text provided" });
+      const buf = fs.readFileSync(f.filepath);
+      let text = "";
+      if ((f.mimetype || "").includes("pdf") || f.originalFilename?.toLowerCase().endsWith(".pdf")) {
+        const data = await pdf(buf);
+        text = (data.text || "").trim();
+      } else {
+        text = buf.toString("utf8").trim();
+      }
+      if (!text) return res.status(400).json({ error: "Could not extract text" });
+      return res.status(200).json({ text });
+    } catch {
+      return res.status(500).json({ error: "Parse error" });
+    }
+  });
+}
+
